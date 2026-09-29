@@ -92,9 +92,9 @@ def build_segments():
 def build_categories():
     parents = list(dict.fromkeys(c["parent"] for c in CATEGORIES))
     parent_id = {p: 19 + i for i, p in enumerate(parents)}
-    rows = [(i + 1, c["name"], parent_id[c["parent"]]) for i, c in enumerate(CATEGORIES)]
+    rows = [(pid, p, None) for p, pid in parent_id.items()]                        # parents first (FK order)
+    rows += [(i + 1, c["name"], parent_id[c["parent"]]) for i, c in enumerate(CATEGORIES)]
     rows += [(17 + i, v[0], None) for i, v in enumerate(CATEGORY_VARIANTS)]        # planted case variants
-    rows += [(pid, p, None) for p, pid in parent_id.items()]
     df = pd.DataFrame(rows, columns=["category_id", "category_name", "parent_category_id"])
     df["parent_category_id"] = df["parent_category_id"].astype("Int64")
     df["is_active"] = True
