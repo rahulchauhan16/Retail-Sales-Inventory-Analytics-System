@@ -1,8 +1,11 @@
-# Local PostgreSQL for development. Credentials come from .env (not committed).
+# Local PostgreSQL for development. Credentials come from .env (not committed); see .env.example.
+#   docker compose up -d --wait      start and wait until the database is ready
+#   docker compose down              stop (data is kept in the named volume)
+#   docker compose down -v           stop AND delete the data
 services:
   db:
     image: postgres:16
-    container_name: retail_pg
+    container_name: ${CONTAINER_NAME:-retail_pg}
     environment:
       POSTGRES_DB: ${DATABASE_NAME}
       POSTGRES_USER: ${DATABASE_USER}
@@ -11,7 +14,10 @@ services:
       - "${DATABASE_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Mounted read-only so \copy-style server-side loads can also work
-      - ./data/generated:/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 volumes:
   pgdata:

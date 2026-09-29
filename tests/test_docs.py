@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 DOCS = sorted((ROOT / "docs").glob("*.md")) + sorted((ROOT / "dashboard").glob("*.md")) + [ROOT / "database" / "erd.md"]
 README = ROOT / "README.md"
-if README.exists():
-    DOCS.append(README)
+DOCS.append(README)
 EXPECTED_DOCS = [f"{n}.md" for n in [
     "01_project_overview", "02_business_requirements", "03_database_design", "04_data_dictionary", "05_sql_analysis",
     "06_inventory_metrics", "07_customer_analytics", "08_powerbi_dashboard", "09_data_quality", "10_performance_optimization",
@@ -49,8 +48,6 @@ def test_relative_markdown_links_resolve(doc):
     for target in re.findall(r"\]\(([^)\s]+)\)", text_):
         if target.startswith(("http://", "https://", "mailto:", "#")):
             continue
-        if target.endswith("README.md") and not README.exists():
-            continue                        # README.md is written in the final documentation phase; this exception disappears with it
         path = (doc.parent / target.split("#")[0]).resolve()
         assert path.exists(), f"{doc.name}: broken link -> {target}"
 
@@ -97,3 +94,55 @@ def test_no_credentials_or_secrets_in_documents():
         body = doc.read_text(encoding="utf-8")
         assert not re.search(r"DATABASE_PASSWORD=\S+", body), doc.name
         assert not re.search(r"(?i)password\s*[:=]\s*['\"]?[A-Za-z0-9]{12,}", body), doc.name
+
+
+# ------------------------------------------------------------------ README
+README_SECTIONS = ["Project overview", "Business problem", "Project objectives", "Key features", "Technology stack", "Architecture",
+                   "Database schema", "Data model", "Dataset", "SQL analysis", "Python analysis", "Power BI dashboard", "Key KPIs",
+                   "Business questions answered", "Data quality checks", "SQL optimization", "Project structure", "Installation",
+                   "PostgreSQL setup", "Running the project", "Power BI setup", "Screenshots", "Example insights",
+                   "Interview talking points", "Future improvements", "Author"]
+
+
+def test_readme_has_all_26_sections_in_order():
+    body = README.read_text(encoding="utf-8")
+    headings = re.findall(r"^## (\d+)\. (.+)$", body, flags=re.M)
+    assert [int(n) for n, _ in headings] == list(range(1, 27))
+    assert [h.lower() for _, h in headings] == [s.lower() for s in README_SECTIONS]
+
+
+def test_every_script_used_in_the_readme_commands_exists():
+    body = README.read_text(encoding="utf-8")
+    blocks = "\n".join(re.findall(r"```(?:powershell|sql)?\n(.*?)```", body, flags=re.S))
+    referenced = set(re.findall(r"\b((?:scripts|python|queries|database)/[\w./-]+\.(?:py|sql|ps1))\b", blocks))
+    assert len(referenced) >= 10
+    for path in referenced:
+        assert (ROOT / path).exists(), f"README command uses a file that does not exist: {path}"
+
+
+def test_readme_setup_commands_cover_the_full_workflow():
+    body = README.read_text(encoding="utf-8")
+    for command in ["python -m venv .venv", "pip install -r requirements.txt", "docker compose up -d --wait",
+                    "python scripts/generate_data.py", "python scripts/load_data.py", "python -m pytest tests -q"]:
+        assert command in body, command
+
+
+def test_readme_says_the_data_is_synthetic_and_powerbi_is_specified():
+    body = README.read_text(encoding="utf-8").lower()
+    assert "synthetic" in body and "specified" in body and "not in the repository" in body
+
+
+def test_project_structure_lists_every_top_level_folder():
+    body = README.read_text(encoding="utf-8")
+    for folder in ["database/", "queries/", "python/", "scripts/", "dashboard/", "docs/", "tests/", "screenshots/"]:
+        assert folder in body and (ROOT / folder).is_dir(), folder
+
+
+def test_env_example_has_no_secret_and_gitignore_protects_env():
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert re.search(r"DATABASE_PASSWORD=\s*$", example, flags=re.M)
+    for key in ["DATABASE_HOST", "DATABASE_PORT", "DATABASE_NAME", "DATABASE_USER", "DATABASE_PASSWORD"]:
+        assert key in example
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    for pattern in [".env", ".venv/", "__pycache__/", ".vscode/", ".idea/"]:
+        assert pattern in ignore, pattern
