@@ -1,4 +1,4 @@
-"""Create the schema, bulk-load data/generated/*.csv with COPY, then run database/seed_data.sql.
+"""Create the schema, bulk-load data/generated/*.csv with COPY, then run seed_data.sql, views.sql and indexes.sql.
 
 Usage (project root):
     python scripts/load_data.py            # rebuild everything (drops and recreates tables)
@@ -46,6 +46,10 @@ def main() -> None:
                 print(f"  {table:<24}{cur.fetchone()[0]:>9,} rows")
             print("Running seed_data.sql (calendar + sequence sync) ...")
             cur.execute((ROOT / "database" / "seed_data.sql").read_text(encoding="utf-8"))
+            print("Creating analytical views (database/views.sql) ...")
+            cur.execute((ROOT / "database" / "views.sql").read_text(encoding="utf-8"))
+            print("Creating indexes (database/indexes.sql) ...")
+            cur.execute((ROOT / "database" / "indexes.sql").read_text(encoding="utf-8"))
         raw.commit()
     except Exception:
         raw.rollback()

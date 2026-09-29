@@ -1,0 +1,128 @@
+"""Measure the real effect of database/indexes.sql using the EXPLAIN ANALYZE workload in queries/12_performance_optimization.sql.
+
+Steps: drop the secondary indexes -> ANALYZE -> run every workload query (median of several runs) ->
+create the indexes -> ANALYZE -> run again -> write docs/benchmark_results.md.
+Every number in that file is measured on the machine that ran this script.
+
+Usage (project root):
+    python scripts/benchmark_indexes.py            # 7 timed runs per query
+    python scripts/benchmark_indexes.py --runs 11
+"""
+import argparse
+import json
+import re
+import statistics
+import sys
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from database_connection import get_engine  # noqa: E402
+from run_query_file import split_statements  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKLOAD = ROOT / "queries" / "12_performance_optimization.sql"
+INDEXES = ROOT / "database" / "indexes.sql"
+OUT = ROOT / "docs" / "benchmark_results.md"
+
+
+def walk(node, acc):
+    acc["nodes"].append(node["Node Type"] + (f" [{node['Index Name']}]" if "Index Name" in node else ""))
+    for child in node.get("Plans", []):
+        walk(child, acc)
+
+
+def measure(cur, sql, runs):
+    """Return median execution ms, planning ms, buffers touched and the plan's node list."""
+    cur.execute("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql)          # warm-up run (fills the cache)
+    times, plan_json = [], None
+    for _ in range(runs):
+        cur.execute("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql)
+        result = cur.fetchone()[0]
+        result = result if isinstance(result, list) else json.loads(result)
+        plan_json = result[0]
+        times.append(plan_json["Execution Time"])
+    acc = {"nodes": []}
+    walk(plan_json["Plan"], acc)
+    plan = plan_json["Plan"]
+    buffers = plan.get("Shared Hit Blocks", 0) + plan.get("Shared Read Blocks", 0)
+    return statistics.median(times), plan_json["Planning Time"], buffers, acc["nodes"]
+
+
+def scan_summary(nodes):
+    """Short label: which scan types the plan used."""
+    kinds = []
+    for n in nodes:
+        for key in ("Seq Scan", "Index Only Scan", "Index Scan", "Bitmap Index Scan"):
+            if n.startswith(key) and key not in kinds:
+                kinds.append(key)
+    used = sorted({re.search(r"\[(.+)\]", n).group(1) for n in nodes if "[" in n})
+    return (", ".join(kinds) or "n/a") + (f" ({', '.join(used)})" if used else "")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--runs", type=int, default=7)
+    args = ap.parse_args()
+
+    stmts = [(qid, title, sql) for qid, title, sql in split_statements(WORKLOAD.read_text(encoding="utf-8-sig"))
+             if sql.lstrip().upper().startswith(("EXPLAIN", "--")) and "EXPLAIN (ANALYZE" in sql]
+    workload = []
+    for qid, title, sql in stmts:
+        comment = [l[2:].strip() for l in sql.splitlines() if l.strip().startswith("--")]
+        body = "\n".join(l for l in sql.splitlines() if not l.strip().startswith("--")).strip().rstrip(";")
+        body = re.sub(r"^EXPLAIN \(ANALYZE, BUFFERS\)\s*", "", body)
+        expectation = next((c for c in comment if c.startswith("Expectation")), "")
+        workload.append((qid, title, body, expectation))
+
+    index_names = re.findall(r"CREATE INDEX IF NOT EXISTS (\w+)", INDEXES.read_text(encoding="utf-8-sig"))
+    raw = get_engine().raw_connection()
+    raw.dbapi_connection.autocommit = True          # must be set on the real psycopg2 connection
+    cur = raw.cursor()
+    cur.execute("SELECT version()")
+    version = cur.fetchone()[0].split(",")[0]
+
+    cur.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname LIKE 'idx\\_%'")
+    existing = [r[0] for r in cur.fetchall()]          # also removes stale indexes that are no longer in indexes.sql
+    print(f"Dropping {len(existing)} secondary indexes ...")
+    for name in existing:
+        cur.execute(f"DROP INDEX IF EXISTS {name}")
+    cur.execute("ANALYZE")
+    before = {qid: measure(cur, body, args.runs) for qid, _, body, _ in workload}
+
+    print("Creating indexes ...")
+    cur.execute(INDEXES.read_text(encoding="utf-8-sig"))
+    after = {qid: measure(cur, body, args.runs) for qid, _, body, _ in workload}
+
+    cur.execute("SELECT indexname, pg_size_pretty(pg_relation_size(indexname::regclass)) FROM pg_indexes "
+                "WHERE indexname = ANY(%s) ORDER BY pg_relation_size(indexname::regclass) DESC", (index_names,))
+    sizes = cur.fetchall()
+    cur.execute("SELECT pg_size_pretty(SUM(pg_relation_size(c.oid))) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r'")
+    table_total = cur.fetchone()[0]
+    cur.close(); raw.close()
+
+    lines = [
+        "# Index benchmark results (measured)", "",
+        f"*Generated by `scripts/benchmark_indexes.py` on {datetime.now():%Y-%m-%d %H:%M}. {version}. "
+        f"Each time is the **median of {args.runs} runs** of `EXPLAIN (ANALYZE, BUFFERS)` after one warm-up run; "
+        "data is cached in memory, so these are warm-cache timings on a laptop running PostgreSQL in Docker. "
+        "Use the ratios and the plan types, not the absolute milliseconds.*", "",
+        "| Query | Scenario | Before (ms) | After (ms) | Change | Plan before | Plan after |", "|---|---|---:|---:|---:|---|---|"]
+    for qid, title, _, _ in workload:
+        b, a = before[qid], after[qid]
+        if scan_summary(b[3]) == scan_summary(a[3]):          # identical plan: any timing gap is measurement noise
+            change = "same plan (timing gap is noise)"
+        else:
+            change = f"{b[0] / a[0]:.1f}x faster" if a[0] < b[0] * 0.8 else (f"{a[0] / b[0]:.1f}x slower" if a[0] > b[0] * 1.25 else "no material change")
+        lines.append(f"| {qid} | {title} | {b[0]:.2f} | {a[0]:.2f} | {change} | {scan_summary(b[3])} | {scan_summary(a[3])} |")
+    lines += ["", "## Index sizes", "", "| Index | Size |", "|---|---:|"] + [f"| {n} | {s} |" for n, s in sizes]
+    lines += ["", f"Total size of all tables: {table_total}.", ""]
+    OUT.write_text("\n".join(lines), encoding="utf-8")
+    print("\n".join(lines[6:6 + len(workload) + 2]))
+    print(f"\nWritten: {OUT}")
+
+
+if __name__ == "__main__":
+    main()
