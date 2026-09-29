@@ -79,7 +79,7 @@ def by_year() -> pd.DataFrame:
                        "FROM vw_orders WHERE order_status = 'COMPLETED' GROUP BY 1").set_index("year")
     cancelled = get_query("SELECT EXTRACT(YEAR FROM order_day)::int AS year, COUNT(*) AS cancelled_orders FROM vw_orders "
                           "WHERE order_status = 'CANCELLED' GROUP BY 1").set_index("year")
-    t = sales.join(orders).join(cancelled)
+    t = sales.join(orders).join(cancelled).sort_index()          # GROUP BY gives no order guarantee; show years chronologically
     t["Gross Margin %"] = 100 * t["gross_profit"] / t["net_revenue"]
     t["Average Order Value"] = t["order_sales_incl_gst"] / t["completed_orders"]
     t["Order Return Rate %"] = 100 * t["orders_with_returns"] / t["completed_orders"]
@@ -94,7 +94,7 @@ def by_year() -> pd.DataFrame:
 def _fmt(name: str, value) -> str:
     if pd.isna(value):
         return "blank"
-    if name.endswith("%") or name in ("Purchase Frequency", "Inventory Turnover"):
+    if "%" in name or name in ("Purchase Frequency", "Inventory Turnover"):
         return f"{value:,.2f}"
     return f"{value:,.0f}"
 

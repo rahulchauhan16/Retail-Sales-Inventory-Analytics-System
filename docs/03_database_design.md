@@ -34,4 +34,52 @@ Full diagram: [database/erd.md](../database/erd.md). Source: [database/schema.sq
 - **UNIQUE:** sku, order_number, po_number, promo_code, store_code, category_name, segment_name, (order_id, product_id), (store_id, product_id), (purchase_id, product_id), (return_id, order_item_id).
 - **CHECK:** 40+ (see `schema.sql`); each is exercised by `tests/test_schema_constraints.py`.
 
-The column-by-column reference is in [04_data_dictionary.md](04_data_dictionary.md) (Phase 13).
+The column-by-column reference is in [04_data_dictionary.md](04_data_dictionary.md), generated from the live database.
+
+## How the tables fit together
+
+- **Customer -> Order -> Order items -> Product**: a customer places many orders (one-to-many); an order has many lines (one-to-many); a product appears on many lines. Orders and products are therefore
+  **many-to-many, resolved by `sales_order_items`**.
+- **Product <-> Store** is many-to-many, resolved by `inventory` (one row per store + product, enforced by `UNIQUE (store_id, product_id)`).
+- **Product <-> Promotion** is many-to-many, resolved by the junction table `product_promotions` (composite primary key).
+- **Order -> Payments** is one-to-many (a failed attempt can precede the successful payment); **Order -> Returns -> Return items** is one-to-many at each step, and each return line points back to the exact sold line.
+- **Supplier -> Purchases -> Purchase items -> Product** mirrors the sales side for buying.
+- **Self-references**: `categories.parent_category_id` (hierarchy) and `employees.manager_id` (reporting line). Both are queried with recursive CTEs.
+- **The ledger**: every sale, purchase, return and adjustment writes an `inventory_transactions` row. Summing it per store and product must give `inventory.quantity_on_hand`; a data-quality check tests this and finds the 68 positions that were deliberately altered.
+- **Polymorphic reference**: `inventory_transactions.reference_id` points to an order, a purchase or a return depending on `reference_type`, so it has no foreign key. This is a known trade-off: flexibility in exchange for a check that must be done by query.
+
+## Analytical layer (views)
+
+`database/views.sql` holds the single definition of each KPI, so SQL, Python and Power BI cannot disagree. Twelve views, layered:
+
+```
+vw_asof, vw_category_canonical            helpers (data window; merges 'Footwear' / 'FOOTWEAR')
+        |
+vw_sales_lines (one sold line)  ---->  vw_monthly_sales, vw_store_performance, vw_category_performance,
+vw_orders (one order)           ---->  vw_product_performance ---> vw_supplier_performance
+vw_customer_summary (materialized), vw_inventory_health, vw_return_analysis
+```
+
+`vw_customer_summary` is a **materialized view** because computing RFM for every customer is the most expensive calculation; it is refreshed by rebuilding
+(`REFRESH MATERIALIZED VIEW vw_customer_summary` after loading new data). All other views are ordinary views.
+
+## Indexes (`database/indexes.sql`)
+
+Primary keys and UNIQUE constraints already create indexes. Ten more exist, each justified by a measured `EXPLAIN ANALYZE` result (doc 10):
+foreign keys used to look up single customers, orders and products; the order date; the ledger key (store, product, date); a partial index on open purchase orders;
+and an expression index on `LOWER(email)`. Indexes that could not be justified were removed and are listed with the reason at the end of the file.
+
+## Security
+
+- Credentials live only in `.env` (ignored by Git); `.env.example` documents the variables.
+- `database/powerbi_readonly.sql` creates `powerbi_reader`, which can read the analytical views and nothing else (verified: it cannot read base tables, insert or delete).
+
+## Known design trade-offs
+
+| Decision | Trade-off |
+|---|---|
+| Prices, costs and GST are stored on the order line at sale time | more storage, but history is never rewritten when prices change |
+| GST rate lives on the product, not the line | simple, but a change in GST law would need a rate history table |
+| No UNIQUE on customer e-mail | allows duplicates (needed for the data-quality exercise); a real system would add a matching process |
+| `reorder_level` and `max_stock_level` are stored per store and product | no separate safety-stock model; see doc 06 |
+| Order status only COMPLETED or CANCELLED | returns are derived from `returns`, so there is no second flag that could disagree |

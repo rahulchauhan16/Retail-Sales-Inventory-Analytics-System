@@ -14,8 +14,9 @@ EMPTY_IS_OK = {"Q209"}          # 'employees hired before their manager' - corre
 
 
 def test_there_are_at_least_fifty_queries():
-    analytical = [s for s in STATEMENTS if not s[0].startswith("Q5")]      # exclude the EXPLAIN workload
+    analytical = [s for s in STATEMENTS if s[0] != "12_performance_optimization.sql"]      # exclude the EXPLAIN workload
     assert len(analytical) >= 50
+    assert len(analytical) == 143 and len(STATEMENTS) - len(analytical) == 17           # the numbers quoted in the docs
     assert len({(f, q) for f, q, _, _ in STATEMENTS}) == len(STATEMENTS), "duplicate query ids inside a file"
 
 
@@ -114,6 +115,15 @@ def test_customer_no_purchase_three_methods_agree(conn):
     r = run(conn, "03_customer_analysis.sql", "Q34").iloc[0]
     assert r["via_left_join"] == r["via_not_exists"] == r["via_not_in"]
     assert r["via_left_join"] > 0
+
+
+def test_rewritten_query_q517_returns_the_same_rows_as_q504(conn):
+    """A performance rewrite is only valid if the result is unchanged."""
+    def rows(qid):
+        sql = next(s for f, q, t, s in STATEMENTS if f == "12_performance_optimization.sql" and q == qid)
+        return run_sql(conn, sql.replace("EXPLAIN (ANALYZE, BUFFERS)", "", 1)).sort_values("order_id").reset_index(drop=True)
+    original, rewrite = rows("Q504"), rows("Q517")
+    assert len(original) > 0 and original.equals(rewrite)
 
 
 def test_not_in_trap_is_demonstrated(conn):

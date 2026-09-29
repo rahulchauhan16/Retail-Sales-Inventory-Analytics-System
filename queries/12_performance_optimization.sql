@@ -58,7 +58,7 @@ SELECT COUNT(*) FROM sales_orders o
 WHERE o.order_status = 'COMPLETED' AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.order_id);
 
 -- Q508 | Open purchase orders ordered by due date
--- Expectation: only ~3 percent of POs are open, so a PARTIAL index containing just those rows is tiny and fast.
+-- Expectation: under 2 percent of POs are open (407 of 23,626), so a PARTIAL index containing just those rows is tiny and fast.
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT purchase_id, supplier_id, expected_date FROM purchases WHERE status = 'ORDERED' ORDER BY expected_date;
 
@@ -98,3 +98,19 @@ SELECT return_id, return_date, refund_amount FROM returns WHERE order_id = 20000
 -- Expectation: a selective lookup by order_id (order detail screens, refund checks) is what idx_payments_order is for.
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT payment_id, payment_method, amount, payment_status FROM payments WHERE order_id = 20000;
+
+-- Q516 | Return lines of one specific sold line
+-- Expectation: a selective lookup on return_items.order_item_id (the composite unique key starts with return_id, so it cannot help). If the planner ignores the index on a 2,900-row table, the index is not worth keeping.
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT return_item_id, quantity, refund_amount FROM return_items WHERE order_item_id = 58934;
+
+-- Q517 | Same question as Q504, rewritten (pre-aggregated join instead of a correlated subquery)
+-- Expectation: computing every customer's average ONCE and joining to it should beat running a subquery for each large order,
+--              because the work no longer depends on the number of outer rows. Compare with Q504 after the indexes exist.
+EXPLAIN (ANALYZE, BUFFERS)
+WITH customer_avg AS (
+    SELECT customer_id, AVG(total_amount) AS avg_total FROM sales_orders WHERE order_status = 'COMPLETED' GROUP BY customer_id
+)
+SELECT o.order_id, o.total_amount FROM sales_orders o
+JOIN customer_avg c ON c.customer_id = o.customer_id
+WHERE o.order_status = 'COMPLETED' AND o.total_amount > 100000 AND o.total_amount > 3 * c.avg_total;

@@ -35,7 +35,7 @@ Measure names match [measures.dax](measures.dax). Percent measures are shown as 
 | Units Returned | 3,180 |
 | Unit Return Rate % | 1.62 |
 | Refunded Net of GST | 3,903,667 |
-| Refund % of Net Revenue | 3 |
+| Refund % of Net Revenue | 2.56 |
 | Write-off Cost | 784,766 |
 | Inventory Value | 62,748,206 |
 | Units On Hand | 43,936 |
@@ -58,19 +58,19 @@ Measure names match [measures.dax](measures.dax). Percent measures are shown as 
 
 ## By year (date slicer = one year)
 
-| Measure | 2024 | 2023 | 2025 |
+| Measure | 2023 | 2024 | 2025 |
 |---|---:|---:|---:|
-| Net Revenue | 50,899,247 | 45,426,183 | 56,201,671 |
-| Gross Profit | 11,769,919 | 10,451,082 | 13,427,993 |
-| Gross Margin % | 23.12 | 23.01 | 23.89 |
-| Units Sold | 65,698 | 58,752 | 71,602 |
-| Discount Given | 759,757 | 819,572 | 847,388 |
-| Completed Orders | 18,096 | 16,317 | 19,847 |
-| Cancelled Orders | 764 | 692 | 859 |
-| Total Customers | 4,295 | 3,074 | 5,497 |
-| Average Order Value | 3,206 | 3,172 | 3,223 |
-| Order Return Rate % | 5.23 | 5.15 | 5.29 |
-| Net Revenue YoY % | blank | -10.75 | 23.72 |
+| Net Revenue | 45,426,183 | 50,899,247 | 56,201,671 |
+| Gross Profit | 10,451,082 | 11,769,919 | 13,427,993 |
+| Gross Margin % | 23.01 | 23.12 | 23.89 |
+| Units Sold | 58,752 | 65,698 | 71,602 |
+| Discount Given | 819,572 | 759,757 | 847,388 |
+| Completed Orders | 16,317 | 18,096 | 19,847 |
+| Cancelled Orders | 692 | 764 | 859 |
+| Total Customers | 3,074 | 4,295 | 5,497 |
+| Average Order Value | 3,172 | 3,206 | 3,223 |
+| Order Return Rate % | 5.15 | 5.23 | 5.29 |
+| Net Revenue YoY % | blank | 12.05 | 10.42 |
 
 Notes:
 - *Lifetime* measures (Buying Customers, Repeat Customer Rate, Avg Customer Lifetime Revenue, Active Customers) ignore the date slicer by design.
