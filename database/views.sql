@@ -332,8 +332,9 @@ LEFT JOIN po ON po.supplier_id = su.supplier_id LEFT JOIN fill f ON f.supplier_i
 
 -- ---- 8. return analysis (one row per returned line) -----------------------------------------
 CREATE VIEW vw_return_analysis AS
-SELECT ri.return_item_id, r.return_id, r.return_date, DATE_TRUNC('month', r.return_date)::date AS return_month,
-       r.order_id, o.order_date, ROUND(EXTRACT(EPOCH FROM (r.return_date - o.order_date)) / 86400.0, 1) AS days_to_return,
+SELECT ri.return_item_id, r.return_id, r.return_date, r.return_date::date AS return_day,
+       DATE_TRUNC('month', r.return_date)::date AS return_month,
+       r.order_id, o.order_date, o.order_date::date AS order_day, ROUND(EXTRACT(EPOCH FROM (r.return_date - o.order_date)) / 86400.0, 1) AS days_to_return,
        r.return_reason, o.store_id, s.store_name, o.channel, COALESCE(sg.segment_name, '(no segment)') AS customer_segment,
        i.product_id, p.product_name, COALESCE(cc.canonical_name, '(no category)') AS category,
        ri.quantity AS units_returned, i.quantity AS units_in_line, ri.refund_amount,

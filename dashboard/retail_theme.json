@@ -1,0 +1,34 @@
+{
+  "name": "Retail Analytics",
+  "dataColors": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
+  "background": "#fcfcfb",
+  "foreground": "#0b0b0b",
+  "tableAccent": "#2a78d6",
+  "good": "#0ca30c",
+  "neutral": "#fab219",
+  "bad": "#d03b3b",
+  "maximum": "#184f95",
+  "center": "#f0efec",
+  "minimum": "#cde2fb",
+  "null": "#898781",
+  "firstLevelElements": "#0b0b0b",
+  "secondLevelElements": "#52514e",
+  "thirdLevelElements": "#898781",
+  "fourthLevelElements": "#c3c2b7",
+  "secondaryBackground": "#f9f9f7",
+  "textClasses": {
+    "title": { "fontFace": "Segoe UI Semibold", "fontSize": 14, "color": "#0b0b0b" },
+    "header": { "fontFace": "Segoe UI Semibold", "fontSize": 12, "color": "#52514e" },
+    "label": { "fontFace": "Segoe UI", "fontSize": 10, "color": "#52514e" },
+    "callout": { "fontFace": "Segoe UI Semibold", "fontSize": 28, "color": "#0b0b0b" }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "gridline": [{ "color": { "solid": { "color": "#e1e0d9" } }, "transparency": 0 }],
+        "categoryAxis": [{ "axisLineColor": { "solid": { "color": "#c3c2b7" } }, "labelColor": { "solid": { "color": "#898781" } } }],
+        "valueAxis": [{ "labelColor": { "solid": { "color": "#898781" } } }]
+      }
+    }
+  }
+}

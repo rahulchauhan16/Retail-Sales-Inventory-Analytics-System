@@ -1,0 +1,169 @@
+// =============================================================================
+// Retail Sales & Inventory Analytics - Power BI measures
+// Model: star schema built from the CSV exports (or the same-named views in PostgreSQL). See powerbi_setup.md.
+// Create each measure in a table called "_Measures" (Enter data -> empty table), one measure per block.
+//
+// Conventions
+//   * Sales = COMPLETED orders only (fact_sales_lines already contains only those).
+//   * Net revenue excludes GST. Average order value uses GST-inclusive order totals (the SQL/Python definition).
+//   * Lifetime customer measures ignore the date slicer on purpose (dim_customer is not date-filtered).
+//   * dim_date must be marked as the date table (column date_key).
+// Every measure name below is checked against the expected values in expected_kpis.md.
+// =============================================================================
+
+// ------------------------------------------------------------------ SALES (fact_sales_lines)
+Net Revenue = SUM ( fact_sales_lines[net_revenue] )
+
+Gross Profit = SUM ( fact_sales_lines[gross_profit] )
+
+COGS = SUM ( fact_sales_lines[cogs] )
+
+Gross Margin % = DIVIDE ( [Gross Profit], [Net Revenue] )
+
+Units Sold = SUM ( fact_sales_lines[quantity] )
+
+Discount Given = SUM ( fact_sales_lines[discount_amount] )
+
+Orders (line basis) = DISTINCTCOUNT ( fact_sales_lines[order_id] )
+
+// ------------------------------------------------------------------ ORDERS (fact_orders)
+Completed Orders = CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[order_status] = "COMPLETED" )
+
+Cancelled Orders = CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[order_status] = "CANCELLED" )
+
+Cancellation Rate = DIVIDE ( [Cancelled Orders], COUNTROWS ( fact_orders ) )
+
+Order Sales incl GST = CALCULATE ( SUM ( fact_orders[total_amount] ), fact_orders[order_status] = "COMPLETED" )
+
+Average Order Value = DIVIDE ( [Order Sales incl GST], [Completed Orders] )
+
+Total Customers = CALCULATE ( DISTINCTCOUNT ( fact_orders[customer_id] ), fact_orders[order_status] = "COMPLETED" )
+
+Purchase Frequency = DIVIDE ( [Completed Orders], [Total Customers] )
+
+Online Order Share = DIVIDE ( CALCULATE ( [Completed Orders], fact_orders[channel] = "ONLINE" ), [Completed Orders] )
+
+// ------------------------------------------------------------------ TIME INTELLIGENCE
+Net Revenue PY = CALCULATE ( [Net Revenue], SAMEPERIODLASTYEAR ( dim_date[date_key] ) )
+
+Net Revenue YoY % = DIVIDE ( [Net Revenue] - [Net Revenue PY], [Net Revenue PY] )
+
+Net Revenue PM = CALCULATE ( [Net Revenue], PREVIOUSMONTH ( dim_date[date_key] ) )
+
+Net Revenue MoM % = DIVIDE ( [Net Revenue] - [Net Revenue PM], [Net Revenue PM] )
+
+// 3-month moving average: sum of the last three calendar months up to the month in context, divided by 3.
+// REMOVEFILTERS on dim_date lets the window reach back across a year slicer.
+Net Revenue 3M Avg =
+VAR EndDate = MAX ( dim_date[date_key] )
+RETURN
+    DIVIDE (
+        CALCULATE (
+            [Net Revenue],
+            REMOVEFILTERS ( dim_date ),
+            dim_date[date_key] > EOMONTH ( EndDate, -3 ),
+            dim_date[date_key] <= EndDate
+        ),
+        3
+    )
+
+Net Revenue Running Total =
+VAR EndDate = MAX ( dim_date[date_key] )
+RETURN
+    CALCULATE ( [Net Revenue], REMOVEFILTERS ( dim_date ), dim_date[date_key] <= EndDate )
+
+// ------------------------------------------------------------------ CUSTOMERS (dim_customer = lifetime view)
+Buying Customers (lifetime) = CALCULATE ( COUNTROWS ( dim_customer ), dim_customer[orders] > 0 )
+
+Repeat Customers = CALCULATE ( COUNTROWS ( dim_customer ), dim_customer[is_repeat_customer] = TRUE () )
+
+Repeat Customer Rate = DIVIDE ( [Repeat Customers], [Buying Customers (lifetime)] )
+
+Avg Customer Lifetime Revenue = DIVIDE ( SUM ( dim_customer[net_revenue] ), [Buying Customers (lifetime)] )
+
+Active Customers (90d) = CALCULATE ( COUNTROWS ( dim_customer ), dim_customer[activity_status] = "Active (last 90 days)" )
+
+// New customers = customers whose first purchase month falls in the selected period.
+// Uses the INACTIVE relationship dim_customer[cohort_month] -> dim_date[date_key].
+New Customers =
+CALCULATE ( COUNTROWS ( dim_customer ), USERELATIONSHIP ( dim_customer[cohort_month], dim_date[date_key] ) )
+
+Returning Customers = MAX ( [Total Customers] - [New Customers], 0 )
+
+// ------------------------------------------------------------------ RETURNS (fact_returns, related to dim_date by ORDER day)
+Orders With Returns =
+CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[order_status] = "COMPLETED", fact_orders[has_return] = TRUE () )
+
+Order Return Rate = DIVIDE ( [Orders With Returns], [Completed Orders] )
+
+Units Returned = SUM ( fact_returns[units_returned] )
+
+Unit Return Rate = DIVIDE ( [Units Returned], [Units Sold] )
+
+Refunded Net of GST = SUM ( fact_returns[refund_net_of_gst] )
+
+Refund % of Net Revenue = DIVIDE ( [Refunded Net of GST], [Net Revenue] )
+
+// Refunds by the month the refund was PAID (cash timing) - uses the inactive relationship on return_day.
+Refunded Net of GST (by return date) =
+CALCULATE ( [Refunded Net of GST], USERELATIONSHIP ( fact_returns[return_day], dim_date[date_key] ) )
+
+Write-off Cost = CALCULATE ( SUM ( fact_returns[cost_value] ), fact_returns[restocked] = FALSE () )
+
+// ------------------------------------------------------------------ INVENTORY (fact_inventory_health = current snapshot)
+Inventory Value = SUM ( fact_inventory_health[inventory_value] )
+
+Units On Hand = SUM ( fact_inventory_health[quantity_on_hand] )
+
+Stock Positions = COUNTROWS ( fact_inventory_health )
+
+Out of Stock Positions = CALCULATE ( [Stock Positions], fact_inventory_health[health_status] = "OUT_OF_STOCK" )
+
+Low Stock Positions = CALCULATE ( [Stock Positions], fact_inventory_health[health_status] = "LOW_STOCK" )
+
+Healthy Positions = CALCULATE ( [Stock Positions], fact_inventory_health[health_status] = "HEALTHY" )
+
+Overstocked Positions = CALCULATE ( [Stock Positions], fact_inventory_health[health_status] = "OVERSTOCKED" )
+
+Dead Stock Positions = CALCULATE ( [Stock Positions], fact_inventory_health[health_status] = "DEAD_STOCK" )
+
+Overstock Value = CALCULATE ( [Inventory Value], fact_inventory_health[health_status] = "OVERSTOCKED" )
+
+Dead Stock Value = CALCULATE ( [Inventory Value], fact_inventory_health[health_status] = "DEAD_STOCK" )
+
+Surplus Share of Value = DIVIDE ( [Overstock Value] + [Dead Stock Value], [Inventory Value] )
+
+Stock-out Risk % = DIVIDE ( [Out of Stock Positions] + [Low Stock Positions], [Stock Positions] )
+
+Suggested Order Qty =
+CALCULATE (
+    SUM ( fact_inventory_health[suggested_order_qty] ),
+    fact_inventory_health[health_status] IN { "OUT_OF_STOCK", "LOW_STOCK" }
+)
+
+// Inventory turnover (ending-inventory approximation): COGS of the last 12 months of data / current inventory value.
+COGS Last 12M =
+VAR LastDate = MAXX ( ALL ( dim_date ), dim_date[date_key] )
+RETURN
+    CALCULATE (
+        [COGS],
+        REMOVEFILTERS ( dim_date ),
+        dim_date[date_key] > EDATE ( LastDate, -12 ),
+        dim_date[date_key] <= LastDate
+    )
+
+Inventory Turnover = DIVIDE ( [COGS Last 12M], [Inventory Value] )
+
+Days of Inventory = DIVIDE ( 365, [Inventory Turnover] )
+
+// ------------------------------------------------------------------ PRODUCTS / CONCENTRATION
+Class A Products = CALCULATE ( DISTINCTCOUNT ( dim_product[product_id] ), dim_product[abc_class] = "A" )
+
+Class A Revenue Share = DIVIDE ( CALCULATE ( SUM ( dim_product[net_revenue] ), dim_product[abc_class] = "A" ), SUM ( dim_product[net_revenue] ) )
+
+// ------------------------------------------------------------------ FORMATTING HELPERS
+// Card subtitle showing the period selected on the page.
+Period Label =
+VAR MinD = MIN ( dim_date[date_key] )
+VAR MaxD = MAX ( dim_date[date_key] )
+RETURN FORMAT ( MinD, "d mmm yyyy" ) & " to " & FORMAT ( MaxD, "d mmm yyyy" )
