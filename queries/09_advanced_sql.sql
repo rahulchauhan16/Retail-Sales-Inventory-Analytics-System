@@ -287,3 +287,26 @@ WITH gaps AS (
 SELECT COUNT(*) AS reactivation_orders, COUNT(DISTINCT customer_id) AS reactivated_customers,
        ROUND(AVG(gap_days), 0) AS avg_silence_days, MAX(gap_days) AS longest_silence_days
 FROM gaps WHERE gap_days > 180;
+
+-- Q115 | How quickly do new customers place a second order? (LEAD)
+-- Business question: What share of customers come back within 30, 60 or 90 days of their first order?
+-- Approach: number each customer's orders, use LEAD to fetch the date of the NEXT order on the first order's row, measure the gap.
+-- Concepts: LEAD (the mirror image of LAG), ROW_NUMBER, conditional counts, cumulative-style buckets.
+-- Why it works: LEAD(order_date) looks one row ahead within the customer, so on the first order it returns the second order's date;
+--               it is NULL for customers who never came back. Very recent customers have had less time to return,
+--               so only customers whose first order is at least 90 days before the end of the data are counted.
+WITH ordered AS (
+    SELECT customer_id, order_date::date AS order_day,
+           ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS rn,
+           LEAD(order_date::date) OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS next_order_day
+    FROM sales_orders WHERE order_status = 'COMPLETED'
+), first_orders AS (
+    SELECT * FROM ordered
+    WHERE rn = 1 AND order_day <= (SELECT MAX(order_date)::date FROM sales_orders) - 90
+)
+SELECT COUNT(*) AS customers_measured,
+       ROUND(100.0 * COUNT(*) FILTER (WHERE next_order_day - order_day <= 30) / COUNT(*), 1) AS second_order_within_30d_pct,
+       ROUND(100.0 * COUNT(*) FILTER (WHERE next_order_day - order_day <= 60) / COUNT(*), 1) AS second_order_within_60d_pct,
+       ROUND(100.0 * COUNT(*) FILTER (WHERE next_order_day - order_day <= 90) / COUNT(*), 1) AS second_order_within_90d_pct,
+       ROUND(100.0 * COUNT(*) FILTER (WHERE next_order_day IS NULL) / COUNT(*), 1) AS never_came_back_pct
+FROM first_orders;
