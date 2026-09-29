@@ -300,6 +300,7 @@ python python/visualization.py                                              # re
 python python/export_dashboard_data.py                                      # 13 CSVs for Power BI in dashboard/exported_data/
 python scripts/run_query_file.py queries/10_data_quality_checks.sql --only Q301 --show 30
 python scripts/benchmark_indexes.py                                         # re-measure the indexes (creates them at the end)
+python scripts/final_audit.py                                               # checklist audit with evidence -> docs/13_final_audit.md
 jupyter notebook python/notebooks                                           # open the notebooks
 ```
 
