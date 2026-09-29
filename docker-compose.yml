@@ -1,0 +1,17 @@
+# Local PostgreSQL for development. Credentials come from .env (not committed).
+services:
+  db:
+    image: postgres:16
+    container_name: retail_pg
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    ports:
+      - "${DATABASE_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mounted read-only so \copy-style server-side loads can also work
+      - ./data/generated:/import:ro
+volumes:
+  pgdata:
