@@ -1,4 +1,4 @@
-﻿"""Static reference data for the synthetic data generator.
+"""Static reference data for the synthetic data generator.
 
 Everything here is fictional: brand names, supplier names and people are invented.
 Prices are GST-inclusive INR MRPs at the END of the data window.

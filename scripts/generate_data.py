@@ -1,4 +1,4 @@
-﻿"""Generate the synthetic retail dataset as CSV files in data/generated/.
+"""Generate the synthetic retail dataset as CSV files in data/generated/.
 
 Run from the project root:
     python scripts/generate_data.py            # default seed 42, fully reproducible
@@ -559,16 +559,22 @@ def simulate_inventory(rng, it, o, cancelled, prod, stocked, sup_lead, sup_late,
     p_of_pair = np.tile(np.arange(P), S)
     lead_p = sup_lead[prod["sup_idx"].to_numpy()][p_of_pair]
 
-    rl = np.maximum(np.ceil(rate * (lead_p + 6) + rate * 3).astype(int), 3)
-    mx = np.maximum(rl * 3, rl + 12)
+    # Minimum stock levels depend on price: nobody keeps 15 units of a 50,000-rupee laptop on the shelf.
+    price_p = prod["price_ref"].to_numpy()[p_of_pair].astype(float)
+    rl_floor = np.where(price_p >= 3000, 1, 2)
+    rl = np.maximum(np.ceil(rate * (lead_p + 9)).astype(int), rl_floor)
+    mx_gap = np.maximum(np.where(price_p >= 10000, 1, 2), np.ceil(rate * 45).astype(int))   # ~6 weeks of demand
+    mx = np.maximum(rl * 3, rl + mx_gap)
     under = (rate > 0.15) & (rng.random(S * P) < 0.10)                  # under-provisioned fast movers
     rl = np.where(under, np.ceil(rl * 0.45).astype(int), rl)
     mx = np.where(under, np.ceil(mx * 0.6).astype(int), mx)
-    # Opening stock: mostly near the order-up-to level; ~12% of slow / non-selling pairs are
+    # Opening stock: mostly near the order-up-to level; ~6-25% of slow / non-selling pairs are
     # deliberately over-stocked (these become the overstock / dead-stock examples).
     normal = np.ceil(mx * rng.uniform(0.6, 1.0, S * P)).astype(int)
     excess = np.where(units == 0, rng.integers(15, 151, S * P), rng.integers(20, 100, S * P))
-    make_excess = (rate < 0.03) & (rng.random(S * P) < np.where(units == 0, 0.45, 0.12))
+    price_pair = prod["price_ref"].to_numpy()[p_of_pair].astype(float)
+    excess = np.maximum(3, (excess * np.clip(3000 / price_pair, 0.05, 1.0)).astype(int))   # costly items are over-stocked in far smaller quantities
+    make_excess = (rate < 0.03) & (rng.random(S * P) < np.where(units == 0, 0.25, 0.06))
     opening = np.where(make_excess, excess, normal)
     stocked_flat = stocked.ravel()
 
@@ -657,8 +663,11 @@ def main(seed):
     promotions, product_promotions, promo_meta = build_promotions(rng, prod)
     P = len(prod)
 
-    stocked = rng.random((S, P)) < 0.75
-    stocked[S - 1] = rng.random(P) < 0.92                                # online hub stocks almost everything
+    # Stores range expensive items selectively; the online hub stocks almost everything.
+    price = prod["price_ref"].to_numpy()
+    p_stock = np.where(price >= 10000, 0.30, np.where(price >= 3000, 0.45, 0.85))
+    stocked = rng.random((S, P)) < p_stock
+    stocked[S - 1] = rng.random(P) < np.where(price >= 10000, 0.75, 0.92)
     stocked[:, prod["w"].to_numpy() == 0] |= rng.random((S, int((prod["w"] == 0).sum()))) < 0.5
 
     o, it = generate_orders(rng, cust, prod, stocked, store_w, store_open, emp_by_store, promo_meta, n_phys)
