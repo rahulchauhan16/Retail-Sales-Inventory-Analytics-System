@@ -53,8 +53,11 @@ DATABASE_PASSWORD=$pw
 }
 finally {
     Step "cleanup"
+    # Docker writes normal progress text ("Container ... Stopping") to stderr. Under $ErrorActionPreference = "Stop"
+    # PowerShell would treat that as a failure and skip the rest of the cleanup, so relax it for this block only.
+    $ErrorActionPreference = "Continue"
     $env:CONTAINER_NAME = $container
-    docker compose -p $project down -v 2>$null | Out-Null
+    docker compose -p $project down -v *> $null
     Remove-Item Env:\CONTAINER_NAME -ErrorAction SilentlyContinue
     Set-Location $source
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
