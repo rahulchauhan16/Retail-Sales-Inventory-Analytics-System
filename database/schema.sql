@@ -186,10 +186,11 @@ CREATE TABLE sales_orders (
     channel         VARCHAR(10) NOT NULL DEFAULT 'IN_STORE' CHECK (channel IN ('IN_STORE', 'ONLINE')),
     order_status    VARCHAR(20) NOT NULL DEFAULT 'COMPLETED'
                     CHECK (order_status IN ('COMPLETED', 'CANCELLED')),
-    subtotal        NUMERIC(12,2) NOT NULL CHECK (subtotal >= 0),   -- sum of line_total (net of discount, GST-inclusive)
+    -- Prices are GST-inclusive (Indian MRP). Net revenue = total_amount - gst_amount.
+    subtotal        NUMERIC(12,2) NOT NULL CHECK (subtotal >= 0),   -- sum(quantity * unit_price) before discount
     discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
-    gst_amount      NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (gst_amount >= 0),  -- GST portion contained in subtotal
-    total_amount    NUMERIC(12,2) NOT NULL CHECK (total_amount >= 0),
+    gst_amount      NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (gst_amount >= 0),  -- GST portion contained in total_amount
+    total_amount    NUMERIC(12,2) NOT NULL CHECK (total_amount >= 0),          -- subtotal - discount_amount
     created_at      TIMESTAMP NOT NULL DEFAULT now(),
     updated_at      TIMESTAMP NOT NULL DEFAULT now()
 );
